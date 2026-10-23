@@ -7,5 +7,9 @@
 \midrule
 \multicolumn{7}{@{}p{14cm}}{\textit{Validation: monthly walk-forward, 2025-12 to 2026-05: each month predicted from all sales before it}} \\
 0 & 2026-10-23 & Starter baselines: 10 nearest earlier sales (off-market), list price (list-aware) & 20.84 & 27.43 & 7.26 & 8.09 \\
+1 & 2026-10-23 & FeatureModel (gradient-boosted trees, starter features) on both tracks & 14.87 & 19.23 & 4.61 & 5.82 \\
+\multicolumn{7}{@{}p{14cm}}{\textit{Validation: 4-month-ahead walk-forward, 2025-06 to 2026-05: 3 folds, each predicting 4 months from the sales before them}} \\
+2 & 2026-10-23 & FeatureModel (gradient-boosted trees, starter features) on both tracks & 15.52 & 19.94 & 4.71 & 5.92 \\
+3 & 2026-10-23 & Starter baselines under 4-month validation: 10 nearest earlier sales (off-market), list price (list-aware) & 20.94 & 27.84 & 7.17 & 8.00 \\
 \bottomrule
 \end{tabular}

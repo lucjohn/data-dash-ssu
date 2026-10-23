@@ -1,6 +1,6 @@
 """Run the whole pipeline. From this folder:
 
-    python run.py validate   test the models on the last six months of sales
+    python run.py validate   test the models on the last twelve months of sales
     python run.py report     score those predictions and draw a figure
     python run.py report "what changed"
                              the same, and also log the scores as a new experiment in report/
@@ -25,29 +25,39 @@ from check_submission import check_all
 
 ROOT = Path(__file__).parent
 TRACKS = ["off_market", "list_aware"]
-# Walk-forward validation: each of these months is predicted by models trained only
-# on the sales before that month, the same way the real test works.
-VALIDATION_MONTHS = pd.period_range("2025-12", "2026-05", freq="M")
+# Walk-forward validation, the same way the real test works: the test trains on the
+# sales up to May 2026 and predicts the homes sold in the 4 months after (June to
+# September). So each fold trains on the sales before a cutoff and predicts the homes
+# sold in the HORIZON months from it, 1 to 4 months ahead.
+HORIZON = 4
+VALIDATION_CUTOFFS = pd.period_range("2025-06", "2026-02", freq="M")[::HORIZON]   # 2025-06, 2025-10, 2026-02
+VALIDATION_MONTHS = pd.period_range(VALIDATION_CUTOFFS[0], periods=HORIZON * len(VALIDATION_CUTOFFS), freq="M")
 # How validation works, in words. Logged with every experiment: scores from different
 # schemes are not comparable, so update this whenever you change validate().
-VALIDATION_SCHEME = (f"monthly walk-forward, {VALIDATION_MONTHS[0]} to {VALIDATION_MONTHS[-1]}: "
-                     "each month predicted from all sales before it")
+VALIDATION_SCHEME = (f"{HORIZON}-month-ahead walk-forward, {VALIDATION_MONTHS[0]} to {VALIDATION_MONTHS[-1]}: "
+                     f"{len(VALIDATION_CUTOFFS)} folds, each predicting {HORIZON} months from the sales before them")
 
 
 def validate():
     listings = data.load("listings")
     results = []
-    for month in VALIDATION_MONTHS:
-        train = listings[listings["date_sold"] < month.start_time]
-        homes = listings[listings["date_sold"].dt.to_period("M") == month]
+    for cutoff in VALIDATION_CUTOFFS:
+        train = listings[listings["date_sold"] < cutoff.start_time]
+        sold_month = listings["date_sold"].dt.to_period("M")
+        homes = listings[(sold_month >= cutoff) & (sold_month < cutoff + HORIZON)]
+        month = homes["date_sold"].dt.to_period("M")
+        # 1 = sold in the first month after the cutoff, as June is for the hidden test.
+        months_ahead = 12 * (month.dt.year - cutoff.year) + month.dt.month - cutoff.month + 1
         for track in TRACKS:
             model = models.make_model(track).fit(train)
             predicted = model.predict(data.hide_answers(homes, track))
             results.append(pd.DataFrame({
-                "ml_num": homes["ml_num"], "track": track, "month": str(month),
+                "ml_num": homes["ml_num"], "track": track, "month": month.astype(str),
+                "months_ahead": months_ahead,
                 "house_type_name": homes["house_type_name"], "sold_price": homes["sold_price"],
                 "predicted_price": np.round(predicted)}))
-        print(f"{month}: trained on {len(train):,} earlier sales, predicted {len(homes):,} homes")
+        print(f"{cutoff} to {cutoff + HORIZON - 1}: trained on {len(train):,} earlier sales, "
+              f"predicted {len(homes):,} homes")
     path = ROOT / "outputs" / "validation_predictions.csv"
     path.parent.mkdir(exist_ok=True)
     pd.concat(results).to_csv(path, index=False)
@@ -105,8 +115,8 @@ def report(label=None):
     (ROOT / "reports" / "validation_report.json").write_text(json.dumps(scores, indent=2))
     lines = [
         "# Validation report", "",
-        f"Walk-forward validation, {VALIDATION_MONTHS[0]} to {VALIDATION_MONTHS[-1]}: each month was "
-        "predicted by models trained only on the sales before it.",
+        f"Walk-forward validation, {VALIDATION_MONTHS[0]} to {VALIDATION_MONTHS[-1]}: models trained only on "
+        f"the sales before {', '.join(map(str, VALIDATION_CUTOFFS))} predicted the {HORIZON} months after each.",
         "Errors are (predicted - sold) / sold. Brackets: bootstrap 95% interval.", "",
         "| Track | Homes | MAPE | MdAPE | Median signed error |", "|---|---|---|---|---|"]
     for track, s in scores.items():
@@ -118,7 +128,13 @@ def report(label=None):
         "A median signed error above 0 means the model tends to predict too high.",
         "The intervals treat homes as independent. Homes sold in the same month share the same",
         "market swings, so the real uncertainty is somewhat wider.", "",
-        "![Error by price range](../figures/error_by_price_range.png)", ""]
+        f"MdAPE by months ahead of the training cutoff (the hidden test is 1 to {HORIZON} months ahead):", "",
+        "| Months ahead | " + " | ".join(TRACKS) + " |", "|---" * (len(TRACKS) + 1) + "|"]
+    absolute = 100 * (predictions["predicted_price"] - predictions["sold_price"]).abs() / predictions["sold_price"]
+    by_ahead = absolute.groupby([predictions["months_ahead"], predictions["track"]]).median().unstack()
+    for ahead, row in by_ahead.iterrows():
+        lines.append(f"| {ahead} | " + " | ".join(f"{row[track]:.2f}%" for track in TRACKS) + " |")
+    lines += ["", "![Error by price range](../figures/error_by_price_range.png)", ""]
     (ROOT / "reports" / "validation_report.md").write_text("\n".join(lines))
     write_latex_table(scores, ROOT / "reports" / "results_table.tex")
     error_by_price_range(predictions)
