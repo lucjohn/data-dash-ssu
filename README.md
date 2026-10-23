@@ -32,6 +32,10 @@ python run.py predict    # write both submission files
 python run.py check      # check them
 ```
 
+To keep a result for the report, give `report` a label: `python run.py report "what changed"`.
+It adds the scores to `report/experiments.csv` and `report/experiments_table.tex`, keeps a copy of
+the table and figure in `report/experiments/`, and the lab notebook `report/notebook.tex` shows them.
+
 On Windows, use `py` if `python` is not found.
 
 ## What to edit

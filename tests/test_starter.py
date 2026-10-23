@@ -141,3 +141,18 @@ def test_whole_pipeline_on_tiny_data(tmp_path, monkeypatch):
     run.predict()
     assert run.check()
     assert (tmp_path / "figures" / "error_by_price_range.png").exists()
+    assert not (tmp_path / "report" / "experiments.csv").exists()   # report without a label logs nothing
+
+    # ---- report "label" logs each run, keeping the earlier ones ----
+    run.report("first try")
+    run.report("k_nearest = 20 & 50% fewer $")
+    log = pd.read_csv(tmp_path / "report" / "experiments.csv")
+    assert log["experiment"].tolist() == [0, 1]
+    assert log["label"].tolist() == ["first try", "k_nearest = 20 & 50% fewer $"]
+    assert log["validation"].tolist() == [run.VALIDATION_SCHEME] * 2
+    for n in [0, 1]:
+        assert (tmp_path / "report" / "experiments" / f"experiment_{n:02d}_results.tex").exists()
+        assert (tmp_path / "report" / "experiments" / f"experiment_{n:02d}_error_by_price_range.png").exists()
+    table = (tmp_path / "report" / "experiments_table.tex").read_text()
+    assert r"k\_nearest = 20 \& 50\% fewer \$" in table
+    assert table.count("Validation:") == 1   # one heading: both runs used the same scheme

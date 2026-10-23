@@ -1,0 +1,88 @@
+% SSU Data Dash 2026: lab notebook. One entry per experiment, written as we go, so the
+% report and the video can be written from it later. Not handed in.
+%
+% To log an experiment:
+%   1. python run.py validate
+%   2. python run.py report "what changed"   (adds row N to experiments.csv and writes
+%      experiments/experiment_NN_results.tex and experiment_NN_error_by_price_range.png)
+%   3. copy the entry template at the bottom of this file and fill it in.
+%
+% Compile from this folder, like report.tex (on Overleaf: upload the whole repository).
+\documentclass[11pt]{article}
+\usepackage[margin=2.2cm]{geometry}
+\usepackage{graphicx,booktabs,hyperref}
+\graphicspath{{experiments/}}
+\setlength{\parskip}{4pt}
+
+\title{SSU Data Dash 2026: lab notebook}
+\date{}
+
+\begin{document}
+\maketitle
+
+\section*{All experiments}
+Validation scores of every logged run, in percent. Rows under different validation headings
+are not comparable.
+
+\begin{center}
+\small
+\input{experiments_table.tex}
+\end{center}
+
+% ---------------------------------------------------------------------------------------
+\section*{Experiment 0: starter baselines}
+
+\paragraph{What changed.}
+Nothing: the starter code as given. Off-market predicts the median sold price of the 10 nearest
+earlier sales of the same property type. List-aware predicts the list price.
+
+\paragraph{Why.}
+The reference point every later experiment is compared with.
+
+\paragraph{Result.}
+
+\begin{center}
+\small
+\input{experiments/experiment_00_results.tex}
+\end{center}
+
+\begin{center}
+\includegraphics[width=0.8\linewidth]{experiment_00_error_by_price_range.png}
+\end{center}
+
+\paragraph{What we learned.}
+\begin{itemize}
+\item \textbf{Off-market misses the bar.} 20.84\% MdAPE is above the 17.7\% maximum error (the
+  median sale of the same type in the same neighbourhood over the past 12 months), so as it stands
+  it would earn no off-market accuracy points.
+\item \textbf{Off-market predicts too high,} by 8.1\% at the median. The bias was largest in
+  December 2025 (+14.4\%) and settled near +6 to +7\% by spring 2026. The comparable sales are
+  not adjusted for how prices moved since they sold.
+\item \textbf{Off-market pulls every home towards its neighbourhood's typical price.} It
+  overprices the cheapest tenth of homes by 31\% and underprices the dearest tenth by 36\% (median
+  signed error). The median of 10 neighbours ignores size, bedrooms and lot. Part of this pattern
+  comes from grouping homes by their sold price, which exaggerates it for any model.
+\item \textbf{Detached homes are hardest off-market:} 28.0\% MdAPE against 18.9\% for condo
+  apartments. Their prices vary most with lot and size, which the baseline ignores.
+\item \textbf{Homes sell below their list price.} The list price is 5.7\% too high at the
+  median: 7.1\% for condo apartments and 0.5\% for semi-detached homes. Even a sold-to-list ratio
+  per property type, learned from past sales, should beat the list-aware baseline.
+\end{itemize}
+
+\paragraph{Next.}
+Switch on the gradient-boosted \texttt{FeatureModel} for both tracks, then make validation predict
+up to four months ahead, as the hidden test does.
+
+% ---------------------------------------------------------------------------------------
+% Entry template: copy it above this line, replace NN with the experiment number.
+%
+% \section*{Experiment NN: short title}
+% \paragraph{What changed.} The code change, in a sentence or two.
+% \paragraph{Why.} The idea behind it: what we expected and why.
+% \paragraph{Result.}
+% \begin{center}\small\input{experiments/experiment_NN_results.tex}\end{center}
+% \begin{center}\includegraphics[width=0.8\linewidth]{experiment_NN_error_by_price_range.png}\end{center}
+% \paragraph{What we learned.} Did it work, where, and why we think so.
+% \paragraph{Next.} What this suggests trying next.
+
+\end{document}

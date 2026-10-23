@@ -1,0 +1,11 @@
+% Written by `python run.py report "what changed"`. Do not edit by hand: the log is report/experiments.csv.
+\begin{tabular}{@{}rlp{6.5cm}cccc@{}}
+\toprule
+ & & & \multicolumn{2}{c}{Off-market} & \multicolumn{2}{c}{List-aware} \\
+\cmidrule(lr){4-5}\cmidrule(l){6-7}
+\# & Date & What changed & MdAPE \% & MAPE \% & MdAPE \% & MAPE \% \\
+\midrule
+\multicolumn{7}{@{}p{14cm}}{\textit{Validation: monthly walk-forward, 2025-12 to 2026-05: each month predicted from all sales before it}} \\
+0 & 2026-10-23 & Starter baselines: 10 nearest earlier sales (off-market), list price (list-aware) & 20.84 & 27.43 & 7.26 & 8.09 \\
+\bottomrule
+\end{tabular}

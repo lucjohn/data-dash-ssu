@@ -2,13 +2,18 @@
 
     python run.py validate   test the models on the last six months of sales
     python run.py report     score those predictions and draw a figure
+    python run.py report "what changed"
+                             the same, and also log the scores as a new experiment in report/
     python run.py predict    predict the test homes and write the two submission files
     python run.py check      check the submission files before you hand them in
 
 On Windows, type py instead of python if python is not found.
 """
 import json
+import shutil
+import subprocess
 import sys
+from datetime import date
 from pathlib import Path
 
 import numpy as np
@@ -23,6 +28,10 @@ TRACKS = ["off_market", "list_aware"]
 # Walk-forward validation: each of these months is predicted by models trained only
 # on the sales before that month, the same way the real test works.
 VALIDATION_MONTHS = pd.period_range("2025-12", "2026-05", freq="M")
+# How validation works, in words. Logged with every experiment: scores from different
+# schemes are not comparable, so update this whenever you change validate().
+VALIDATION_SCHEME = (f"monthly walk-forward, {VALIDATION_MONTHS[0]} to {VALIDATION_MONTHS[-1]}: "
+                     "each month predicted from all sales before it")
 
 
 def validate():
@@ -42,7 +51,25 @@ def validate():
     path = ROOT / "outputs" / "validation_predictions.csv"
     path.parent.mkdir(exist_ok=True)
     pd.concat(results).to_csv(path, index=False)
+    # Which code made these predictions, for the experiment log (see log_experiment).
+    run_info = {"validated_on": date.today().isoformat(), "code_version": code_version(),
+                "validation": VALIDATION_SCHEME}
+    (ROOT / "outputs" / "validation_run.json").write_text(json.dumps(run_info, indent=2))
     print(f"Wrote {path.relative_to(ROOT)}")
+
+
+def code_version():
+    """The git commit the code is at, plus any Python files changed since, so a logged
+    result can be traced back to the code that produced it."""
+    def git(*args):
+        return subprocess.run(["git", *args], cwd=Path(__file__).parent, capture_output=True,
+                              text=True, check=True).stdout
+    try:
+        commit = git("rev-parse", "--short", "HEAD").strip()
+        changed = [line[3:] for line in git("status", "--porcelain", "--", "*.py").splitlines()]
+    except (OSError, subprocess.CalledProcessError):
+        return "unknown"
+    return commit + (" + edits to " + ", ".join(changed) if changed else "")
 
 
 def bootstrap_ci(values, statistic, repeats=1000):
@@ -67,7 +94,7 @@ def metrics(predictions):
     }
 
 
-def report():
+def report(label=None):
     path = ROOT / "outputs" / "validation_predictions.csv"
     if not path.exists():
         sys.exit(f"{path} does not exist yet: run `python run.py validate` first")
@@ -93,14 +120,16 @@ def report():
         "market swings, so the real uncertainty is somewhat wider.", "",
         "![Error by price range](../figures/error_by_price_range.png)", ""]
     (ROOT / "reports" / "validation_report.md").write_text("\n".join(lines))
-    write_latex_table(scores)
+    write_latex_table(scores, ROOT / "reports" / "results_table.tex")
     error_by_price_range(predictions)
     print("\n".join(lines))
     print("Wrote reports/validation_report.md, reports/validation_report.json, reports/results_table.tex "
           "and figures/error_by_price_range.png")
+    if label:
+        log_experiment(scores, label)
 
 
-def write_latex_table(scores):
+def write_latex_table(scores, path):
     """The same scores as a LaTeX table, for report/report.tex to include."""
     rows = []
     for track, s in scores.items():
@@ -113,7 +142,67 @@ def write_latex_table(scores):
         "\\begin{tabular}{lrccc}", "\\hline",
         "Track & Homes & MdAPE \\% (95\\% CI) & MAPE \\% (95\\% CI) & Median signed error \\% \\\\", "\\hline",
         *rows, "\\hline", "\\end{tabular}"])
-    (ROOT / "reports" / "results_table.tex").write_text(table + "\n")
+    path.write_text(table + "\n")
+
+
+def log_experiment(scores, label):
+    """Keep this validation run for the report: add a row to report/experiments.csv, keep a
+    copy of its results table and figure in report/experiments/, and rewrite
+    report/experiments_table.tex from the whole log.
+
+    Every run is kept, the bad ones too: judges want to see how many things you tried
+    before the score you report.
+    """
+    run_info_path = ROOT / "outputs" / "validation_run.json"
+    run_info = (json.loads(run_info_path.read_text()) if run_info_path.exists()
+                else {"validated_on": "unknown", "code_version": "unknown", "validation": "unknown"})
+    log_path = ROOT / "report" / "experiments.csv"
+    log = pd.read_csv(log_path) if log_path.exists() else pd.DataFrame()
+    number = len(log)
+    row = {"experiment": number, "validated_on": run_info["validated_on"], "label": label}
+    for track, s in scores.items():
+        for metric in ["mdape", "mape", "median_signed_error"]:
+            row[f"{track}_{metric}"] = s[metric]
+    row["code_version"] = run_info["code_version"]
+    row["validation"] = run_info["validation"]
+    log = pd.concat([log, pd.DataFrame([row])], ignore_index=True)
+
+    folder = ROOT / "report" / "experiments"
+    folder.mkdir(parents=True, exist_ok=True)
+    log.to_csv(log_path, index=False)
+    write_latex_table(scores, folder / f"experiment_{number:02d}_results.tex")
+    shutil.copy(ROOT / "figures" / "error_by_price_range.png",
+                folder / f"experiment_{number:02d}_error_by_price_range.png")
+    write_experiments_table(log)
+    print(f"Logged experiment {number} in report/experiments.csv and report/experiments/")
+
+
+def latex_escape(text):
+    """Text that LaTeX prints as is, even with characters such as _ % & $ in it."""
+    special = {"\\": r"\textbackslash{}", "&": r"\&", "%": r"\%", "$": r"\$", "#": r"\#",
+               "_": r"\_", "{": r"\{", "}": r"\}", "~": r"\textasciitilde{}", "^": r"\textasciicircum{}"}
+    return "".join(special.get(c, c) for c in str(text))
+
+
+def write_experiments_table(log):
+    """Every logged experiment as one LaTeX table, for the lab notebook and the report's
+    appendix. A new heading row marks each change of validation scheme."""
+    rows, scheme = [], None
+    for _, e in log.iterrows():
+        if e["validation"] != scheme:
+            scheme = e["validation"]
+            rows.append(f"\\multicolumn{{7}}{{@{{}}p{{14cm}}}}{{\\textit{{Validation: {latex_escape(scheme)}}}}} \\\\")
+        rows.append(f"{e['experiment']} & {e['validated_on']} & {latex_escape(e['label'])} "
+                    f"& {e['off_market_mdape']:.2f} & {e['off_market_mape']:.2f} "
+                    f"& {e['list_aware_mdape']:.2f} & {e['list_aware_mape']:.2f} \\\\")
+    table = "\n".join([
+        "% Written by `python run.py report \"what changed\"`. Do not edit by hand: the log is report/experiments.csv.",
+        "\\begin{tabular}{@{}rlp{6.5cm}cccc@{}}", "\\toprule",
+        " & & & \\multicolumn{2}{c}{Off-market} & \\multicolumn{2}{c}{List-aware} \\\\",
+        "\\cmidrule(lr){4-5}\\cmidrule(l){6-7}",
+        "\\# & Date & What changed & MdAPE \\% & MAPE \\% & MdAPE \\% & MAPE \\% \\\\", "\\midrule",
+        *rows, "\\bottomrule", "\\end{tabular}"])
+    (ROOT / "report" / "experiments_table.tex").write_text(table + "\n")
 
 
 def error_by_price_range(predictions):
@@ -169,7 +258,9 @@ def check():
 COMMANDS = {"validate": validate, "report": report, "predict": predict, "check": check}
 
 if __name__ == "__main__":
-    if len(sys.argv) != 2 or sys.argv[1] not in COMMANDS:
+    args = sys.argv[1:]
+    # Only report takes an extra argument: the experiment's label.
+    if not args or args[0] not in COMMANDS or len(args) > (2 if args[0] == "report" else 1):
         sys.exit(__doc__)
-    result = COMMANDS[sys.argv[1]]()
+    result = COMMANDS[args[0]](*args[1:])
     sys.exit(1 if result is False else 0)

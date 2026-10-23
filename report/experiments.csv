@@ -1,0 +1,2 @@
+experiment,validated_on,label,off_market_mdape,off_market_mape,off_market_median_signed_error,list_aware_mdape,list_aware_mape,list_aware_median_signed_error,code_version,validation
+0,2026-10-23,"Starter baselines: 10 nearest earlier sales (off-market), list price (list-aware)",20.84,27.43,8.07,7.26,8.09,5.68,"6c5831e + edits to run.py, tests/test_starter.py","monthly walk-forward, 2025-12 to 2026-05: each month predicted from all sales before it"

@@ -75,4 +75,13 @@ Source & URL & Periods covered \\
 \texttt{pip install -r requirements.txt}\\
 \texttt{python run.py validate \&\& python run.py report \&\& python run.py predict \&\& python run.py check}
 
+\appendix
+\section{Every experiment we ran}
+% Written by `python run.py report "what changed"`: one row per logged validation run, the
+% ones that did worse included. experiments.csv also records the code version of each run.
+\begin{center}
+\small
+\input{experiments_table.tex}
+\end{center}
+
 \end{document}

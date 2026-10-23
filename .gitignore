@@ -1,8 +1,11 @@
 # Data and everything the scripts write
 data/
 outputs/
-reports/
-figures/
+# ...except the table and figure report/report.tex includes, so it compiles from the repo
+reports/*
+!reports/results_table.tex
+figures/*
+!figures/error_by_price_range.png
 submissions/
 
 # Python and notebook clutter
